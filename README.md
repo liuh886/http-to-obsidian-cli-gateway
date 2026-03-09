@@ -17,7 +17,7 @@
 ### 📖 Introduction
 This repository is an optimized **HTTP Proxy Gateway** designed for high-performance interaction between AI agents (running in Docker/Sandbox) and the **Obsidian CLI** on the host machine.
 
-The v2.1 update adds advanced graph traversal capabilities, enabling AI to navigate complex knowledge structures like ESG and CCUS clusters directly via memory.
+The v2.1 update adds advanced graph traversal capabilities, enabling AI to navigate complex knowledge structures.
 
 #### 🚀 v2.1 Optimizations
 *   **Knowledge Graph Traversal**: New `/graph` endpoint performs localized BFS/DFS (nodes & edges) centered around a specific note, avoiding massive data transfers.
@@ -110,7 +110,7 @@ curl -X POST http://localhost:8888/graph \
 ## 简体中文 (v2.1 图谱优化版)
 
 ### 🚀 v2.1 核心改进
-*   **知识图谱遍历**：新增 `/graph` 接口，支持以特定笔记为中心进行局部 BFS/DFS 遍历（返回节点与边），适用于 ESG/CCUS 等复杂关系链分析。
+*   **知识图谱遍历**：新增 `/graph` 接口，支持以特定笔记为中心进行局部 BFS/DFS 遍历（返回节点与边），适用于复杂关系链分析。
 *   **高性能架构**：基于 Fastify 与 P-Queue，确保并发请求下的系统稳定性。
 *   **内存级检索**：直接访问 `metadataCache`，无需磁盘扫描。
 
