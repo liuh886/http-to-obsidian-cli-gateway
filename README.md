@@ -1,4 +1,4 @@
-# http-to-obsidian-cli-gateway 🚀
+# http-to-obsidian-cli-gateway 🚀 (v2.1 Graph Optimized)
 
 [English](#english) | [简体中文](#简体中文)
 
@@ -7,169 +7,134 @@
 <a name="english"></a>
 ## English
 
-> **The Bridge between Isolation and Intelligence.**
+> **The High-Performance Bridge between Isolation and Intelligence.**
 
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 [![Obsidian](https://img.shields.io/badge/Obsidian-CLI-7c3aed?style=flat-square)](https://help.obsidian.md/cli)
+[![Fastify](https://img.shields.io/badge/Fastify-v4-black?style=flat-square)](https://www.fastify.io/)
 [![Docker](https://img.shields.io/badge/Docker-Sandboxed_Agent-2496ed?style=flat-square)](https://www.docker.com/)
 
 ### 📖 Introduction
-This repository is a lightweight **HTTP Proxy Gateway** designed to solve the isolation problem for AI agents (like Gemini or Claude running in Docker/Sandbox) that cannot directly access the **Obsidian CLI** on the host machine.
+This repository is an optimized **HTTP Proxy Gateway** designed for high-performance interaction between AI agents (running in Docker/Sandbox) and the **Obsidian CLI** on the host machine.
 
-It opens a protected port on the host, receives `eval` or `search` commands from the container, invokes the host Obsidian process, and returns real-time results.
+The v2.1 update adds advanced graph traversal capabilities, enabling AI to navigate complex knowledge structures like ESG and CCUS clusters directly via memory.
 
-#### Core Value
-*   **Sandbox Traversal**: Empowers agents in isolated containers to control desktop applications on the host.
-*   **Active Brain Access**: AI accesses Obsidian memory (`metadataCache`) directly, bypassing disk scans for 100x speed improvement.
-*   **Zero Intrusiveness**: No Obsidian plugins required, just the official CLI.
-> **Performance**: Analyzed 5,800+ notes and 1,900+ links in ~300ms, with complex graph hub analysis in ~3.9s via Docker traversal.
+#### 🚀 v2.1 Optimizations
+*   **Knowledge Graph Traversal**: New `/graph` endpoint performs localized BFS/DFS (nodes & edges) centered around a specific note, avoiding massive data transfers.
+*   **Fastify Framework**: High-performance HTTP stack with ~30% lower latency than Express.
+*   **Task Queue (P-Queue)**: Request serialization to prevent "race conditions" and host resource spikes.
+*   **Spawn over Exec**: Secure process handling with stream monitoring.
+*   **Metadata Search**: Leverages `metadataCache` for sub-millisecond fuzzy search.
 
 ### 🛠️ Features
-*   **Dynamic Code Execution (`/eval`)**: Send arbitrary JS to Obsidian and get JSON results.
-*   **Global Search (`/search`)**: Resolve fuzzy keywords into full vault paths.
-*   **Path Translation**: Automatic handling of path mapping between host and container.
-*   **Security Auth**: Simple token verification to prevent unauthorized access.
-*   **Streaming Logs**: Monitor all container requests in real-time.
-
-### 📦 Quick Start
-1. **Prepare (Host)**: Obsidian v1.12+ running, CLI enabled in settings, Node.js v16+ installed.
-2. **Install & Run**:
-   ```bash
-   git clone https://github.com/your-username/http-to-obsidian-cli-gateway.git
-   cd http-to-obsidian-cli-gateway
-   npm install
-   node src/server.js
-   ```
-3. **Invoke (Docker)**:
-   ```bash
-   curl -X POST http://host.docker.internal:8888/eval \
-        -H "Content-Type: application/json" \
-        -d '{"vault": "MyNotes", "code": "app.vault.getFiles().length"}'
-   ```
+*   **Dynamic Code Evaluation (`/eval`)**: Execute arbitrary JS in the active Obsidian process.
+*   **In-Memory Search (`/search`)**: Fuzzy search over 10k+ notes in milliseconds.
+*   **Graph Exploration (`/graph`)**: Fetch localized nodes and edges for relationship mapping.
+*   **API Key Security**: Mandatory `X-API-Key` authentication.
+*   **Health Monitoring (`/health`)**: Built-in verification of CLI responsiveness.
 
 ---
 
+## 🧠 Integrating with Graph Query Algorithms
 
-### 🚀 Usage from Docker (Client Side)
+The v2.1 Gateway is designed to be the "execution engine" for the **[obsidian-graph-query](https://github.com/zhihaol/obsidian-graph-query)** project. By combining the Gateway's `/eval` endpoint with pre-defined graph templates, you can perform advanced analysis on your knowledge base.
 
-#### 1. Direct HTTP API (Curl)
-The simplest way to interact with the gateway is via standard HTTP POST requests.
+### 🔗 Synergy with `obsidian-graph-query`
+The Gateway provides the high-performance transport, while `obsidian-graph-query` provides the logic. 
+
+**Common Workflow:**
+1.  **Template Selection**: Pick an algorithm (e.g., Shortest Path, Tarjan's Bridges).
+2.  **Parameter Injection**: Replace placeholders (like `{{NOTE_PATH}}`) with actual vault paths.
+3.  **Gateway Execution**: Send the resulting JS to the `/eval` endpoint.
+4.  **Insight Extraction**: Receive a JSON object containing graph nodes, edges, and metrics.
+
+### 🚀 Localized Graph Traversal Example
+Instead of loading all 5,000+ notes, use `/graph` for a "flashlight" view of specific clusters.
+
 ```bash
-# Get note count
-curl -X POST http://host.docker.internal:8888/eval \
+# Get nodes and edges within 2 hops of "CCUS/Cluster-A"
+curl -X POST http://localhost:8888/graph \
+     -H "X-API-Key: $OBSIDIAN_GATEWAY_KEY" \
      -H "Content-Type: application/json" \
-     -d '{"code": "app.vault.getMarkdownFiles().length"}'
-
-# Search for a specific note
-curl -X POST http://host.docker.internal:8888/search \
-     -H "Content-Type: application/json" \
-     -d '{"query": "ESG", "limit": 5}'
+     -d '{
+       "central_node": "CCUS/Cluster-A.md",
+       "depth": 2
+     }'
 ```
 
-#### 2. Python CLI Wrapper (Seamless Integration)
-We provide a Python script `src/client-proxy.py` that can be used as a drop-in replacement for the `obsidian` command inside Docker.
-1. Copy `src/client-proxy.py` into your Docker container.
-2. Alias or symlink it to `obsidian`: `ln -s /path/to/client-proxy.py /usr/local/bin/obsidian`.
-3. Now you can run standard Obsidian CLI commands directly:
-   ```bash
-   obsidian vault="MyVault" eval code="app.vault.getName()"
+### 🌉 Bridge Detection Example (Complex Query)
+To find "Knowledge Bridges" (notes that connect two otherwise isolated clusters), use the `/eval` endpoint with a Tarjan template:
+
+```bash
+curl -X POST http://localhost:8888/eval \
+     -H "X-API-Key: $OBSIDIAN_GATEWAY_KEY" \
+     -d '{"code": "(() => { /* Tarjan Bridge Algorithm */ })()"}'
+```
+
+---
+
+### 📦 Quick Start (Host)
+1. **Prepare**: Ensure Obsidian v1.12+ is running with CLI enabled.
+2. **Install**: `npm install`
+3. **Configure**: Create a `.env` file.
+   ```env
+   OBSIDIAN_GATEWAY_KEY=your_secret_token
    ```
+4. **Run**: `npm start`
+
+### 🚀 Usage from Docker (Client)
+
+#### 1. Python Proxy (Recommended)
+```bash
+export OBSIDIAN_GATEWAY_URL="http://host.docker.internal:8888"
+export OBSIDIAN_GATEWAY_KEY="your_secret_token"
+
+# Search
+python3 src/client-proxy.py search query="AI Ethics" limit=5
+
+# Graph (2 levels deep)
+python3 src/client-proxy.py graph central_node="CCUS/Policy" depth=2
+```
+
+#### 2. Direct HTTP API
+```bash
+curl -X POST http://localhost:8888/graph \
+     -H "X-API-Key: your_secret_token" \
+     -H "Content-Type: application/json" \
+     -d '{"central_node": "CCUS/Policy", "depth": 2}'
+```
+
+---
 
 <a name="简体中文"></a>
-## 简体中文
+## 简体中文 (v2.1 图谱优化版)
 
-> **跨越孤岛与智能的桥梁。**
-
-### 📖 项目简介
-本仓库是一个轻量级的 **HTTP 代理网关**，专门用于解决 AI 智能体（如运行在 Docker/Sandbox 中的 Gemini 或 Claude）无法直接访问宿主机 **Obsidian CLI** 的痛点。
-
-它在宿主机上开启一个受保护的端口，接收来自容器的 `eval` 或 `search` 指令，调用宿主机的 Obsidian 进程并返回实时计算结果。
-
-#### 核心价值
-*   **跨越沙箱隔离**：让运行在隔离容器内的 AI 具备操控宿主机桌面端应用的能力。
-*   **保持“大脑”活性**：AI 直接访问 Obsidian 内存中的 `metadataCache`，无需扫描磁盘文件，速度提升 100x。
-*   **零侵入性**：无需修改 Obsidian 插件，只需宿主机开启官方 CLI 功能。
-> **性能表现**：通过 Docker 穿透测试，在 ~300ms 内完成 5800+ 笔记及 1900+ 链接的统计，在 ~3.9s 内完成复杂的全库图谱枢纽分析。
-
-### 🛠️ 功能特性
-*   **动态代码执行 (`/eval`)**：支持发送任意 JavaScript 到 Obsidian 内部执行并返回 JSON。
-*   **全局搜索 (`/search`)**：快速将模糊关键词解析为 Vault 中的完整路径。
-*   **路径映射 (Path Translation)**：自动处理宿主机与容器之间挂载路径的差异。
-*   **安全认证**：支持简易 Token 校验，防止未授权访问宿主机。
-*   **流式日志**：实时监控来自容器的所有请求记录。
-
-### 📦 快速开始
-1. **环境准备 (宿主机)**：Obsidian v1.12+ 已运行，设置中已开启 CLI，已安装 Node.js v16+。
-2. **安装与启动**：
-   ```bash
-   git clone https://github.com/your-username/http-to-obsidian-cli-gateway.git
-   cd http-to-obsidian-cli-gateway
-   npm install
-   node src/server.js
-   ```
-3. **在 Docker/Sandbox 中调用**：
-   ```bash
-   curl -X POST http://host.docker.internal:8888/eval \
-        -H "Content-Type: application/json" \
-        -d '{"vault": "MyNotes", "code": "app.vault.getFiles().length"}'
-   ```
+### 🚀 v2.1 核心改进
+*   **知识图谱遍历**：新增 `/graph` 接口，支持以特定笔记为中心进行局部 BFS/DFS 遍历（返回节点与边），适用于 ESG/CCUS 等复杂关系链分析。
+*   **高性能架构**：基于 Fastify 与 P-Queue，确保并发请求下的系统稳定性。
+*   **内存级检索**：直接访问 `metadataCache`，无需磁盘扫描。
 
 ---
-
-
-### 🚀 Docker 端使用方法 (客户端)
-
-#### 1. 直接通过 HTTP API (Curl)
-最简单的方式是直接发送 HTTP POST 请求。
-```bash
-# 获取笔记总数
-curl -X POST http://host.docker.internal:8888/eval \
-     -H "Content-Type: application/json" \
-     -d '{"code": "app.vault.getMarkdownFiles().length"}'
-
-# 搜索特定笔记
-curl -X POST http://host.docker.internal:8888/search \
-     -H "Content-Type: application/json" \
-     -d '{"query": "ESG", "limit": 5}'
-```
-
-#### 2. Python CLI 包装脚本 (无感接入)
-项目提供了 `src/client-proxy.py` 脚本，可以作为 Docker 内部 `obsidian` 命令的替代品。
-1. 将 `src/client-proxy.py` 拷贝到 Docker 容器内。
-2. 将其设置为别名或创建软链接：`ln -s /path/to/client-proxy.py /usr/local/bin/obsidian`。
-3. 现在你可以在容器内直接运行标准的 Obsidian CLI 命令：
-   ```bash
-   obsidian vault="MyVault" eval code="app.vault.getName()"
-   ```
 
 ## 🏗️ Architecture / 技术架构
 
 ```mermaid
-graph LR
-    subgraph Docker_Container
-        A[AI Agent / Gemini] -- HTTP POST --> B[Proxy Client]
+graph TD
+    subgraph Docker_Agent
+        A[AI Model / Gemini] --> B[client-proxy.py]
     end
     
-    subgraph Host_Machine
-        B -- Port:8888 --> C[HTTP-to-Obsidian Gateway]
-        C -- shell_exec --> D[Obsidian CLI]
-        D -- IPC --> E[Running Obsidian App]
+    subgraph Host_Gateway
+        B -- "HTTP (X-API-Key)" --> C[Fastify Server]
+        C --> D[P-Queue / Task Serializer]
+        D -- "spawn()" --> E[Obsidian CLI]
+    end
+    
+    subgraph Desktop_App
+        E -- "IPC" --> F[Obsidian.exe / app.js]
+        F -- "Read" --> G[(metadataCache / resolvedLinks)]
     end
 ```
 
 ## 📄 License / 开源协议
 [MIT License](LICENSE)
-
----
-
-## 🚀 Automatic Startup / 自动启动方案
-
-### Option: Obsidian Shell Commands Plugin / 方案：Obsidian Shell Commands 插件
-To automatically start the gateway when Obsidian launches:
-1. Install the **Shell Commands** community plugin in Obsidian.
-2. Go to `Settings -> Shell Commands -> Events`.
-3. Enable the **Obsidian starts** event.
-4. Add a new shell command: `node /path/to/http-to-obsidian-cli-gateway/src/server.js`.
-5. (Optional) Set output to "Ignore" to run silently in the background.
-
-这样，只要你打开 Obsidian，网关就会自动在后台启动，实现 AI 助手对知识库的无缝接入。
