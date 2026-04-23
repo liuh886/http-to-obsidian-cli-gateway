@@ -2,3 +2,7 @@ node_modules/
 .DS_Store
 *.log
 .env
+lifeos_mem.db
+chroma_db/
+server.log
+bridge.log

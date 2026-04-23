@@ -1,28 +1,99 @@
+const dotenv = require('dotenv');
+dotenv.config();
+
 const fastify = require('fastify')({ logger: true });
 const { spawn } = require('child_process');
 const PQueue = require('p-queue').default;
-const dotenv = require('dotenv');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 
-// Load environment variables
-dotenv.config();
+// ... (previous imports and setup)
 
-// Initialize serialization queue to prevent race conditions in Obsidian CLI
+/**
+ * Endpoint: Get Physical Metadata (Hash/Size) for Drift Detection
+ */
+fastify.post('/metadata', async (request, reply) => {
+    const { target } = request.body;
+    if (!target) return reply.status(400).send({ error: 'Missing target' });
+
+    const physicalPath = resolveAlias(target);
+    const fullPath = path.join(VAULT_PATH, physicalPath);
+
+    if (!fs.existsSync(fullPath)) {
+        return reply.status(404).send({ error: `File not found: ${physicalPath}` });
+    }
+
+    try {
+        const fileBuffer = fs.readFileSync(fullPath);
+        const hash = crypto.createHash('md5').update(fileBuffer).digest('hex');
+        const stats = fs.statSync(fullPath);
+
+        return {
+            status: 'success',
+            path: physicalPath,
+            hash: hash,
+            size: stats.size,
+            mtime: stats.mtime
+        };
+    } catch (err) {
+        return reply.status(500).send({ error: 'Failed to read metadata', details: err.message });
+    }
+});
+
+// Initialize serialization queue
 const queue = new PQueue({ concurrency: 1 });
 
 // Configuration
-const PORT = process.env.OBSIDIAN_GATEWAY_PORT || 8888;
-const API_KEY = process.env.OBSIDIAN_GATEWAY_KEY || 'change-me-in-env';
+const PORT = process.env.OBSIDIAN_GATEWAY_PORT || 8742;
+const HOST = process.env.OBSIDIAN_GATEWAY_HOST || '127.0.0.1';
+const API_KEY = process.env.OBSIDIAN_GATEWAY_KEY;
+const VAULT_PATH = process.env.OBSIDIAN_VAULT_PATH || '/mnt/zhihaol';
+const OBSIDIAN_BIN = process.env.OBSIDIAN_BIN || (
+    process.platform === 'win32'
+        ? path.join(process.env.LOCALAPPDATA || '', 'Obsidian', 'Obsidian.exe')
+        : 'obsidian'
+);
+
+if (!API_KEY) {
+    console.error('CRITICAL ERROR: OBSIDIAN_GATEWAY_KEY is not set. Service will refuse all requests.');
+}
+
+/**
+ * Semantic Alias Resolver
+ */
+const resolveAlias = (alias) => {
+    const now = new Date();
+    const isoDate = now.toISOString().split('T')[0];
+    const year = now.getFullYear();
+    
+    const aliases = {
+        '@daily': `000_Inbox/Daily_Note/${isoDate}.md`,
+        '@inbox': `000_Inbox/Inbox.md`,
+        '@bio': `400_Archives/Biography/${year}.md`,
+        '@log': `100_Logs/System_Log.md`,
+        '@nexus': `200_Area/Contacts/Registry.md`
+    };
+    
+    if (aliases[alias]) return aliases[alias];
+    // V11 SOTA: If alias starts with '@' but is not in the map, strip '@' to allow physical path escaping
+    if (alias.startsWith('@')) return alias.substring(1);
+    return alias;
+};
 
 /**
  * Executes the obsidian CLI command with serialized access via PQueue.
- * Uses child_process.spawn for better argument handling and performance.
  */
 const executeCommand = (args) => {
     return queue.add(() => new Promise((resolve, reject) => {
         const startTime = Date.now();
         fastify.log.info({ args }, "Spawning obsidian process");
 
-        const proc = spawn('obsidian', args);
+        const proc = spawn(OBSIDIAN_BIN, args, {
+            shell: false,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+        });
         let stdout = '';
         let stderr = '';
 
@@ -49,196 +120,123 @@ const executeCommand = (args) => {
 
 // Security: Simple API Key Authentication Middleware
 fastify.addHook('preHandler', async (request, reply) => {
-    // Skip auth for health check if desired, or keep it consistent
     if (request.url === '/health') return;
-
     const apiKey = request.headers['x-api-key'];
     if (!apiKey || apiKey !== API_KEY) {
         reply.code(401).send({ error: 'Unauthorized: Invalid or missing API Key' });
     }
 });
 
-// Endpoint: Evaluate dynamic JavaScript within Obsidian
+/**
+ * Endpoint: Write to a controlled block with anchor ULID
+ */
+fastify.post('/write_block', async (request, reply) => {
+    const { vault, target, block_id, content } = request.body;
+    if (!target || !block_id || content === undefined) {
+        return reply.status(400).send({ error: 'Missing target, block_id, or content' });
+    }
+
+    const physicalPath = resolveAlias(target);
+    const fullPath = path.join(VAULT_PATH, physicalPath);
+
+    if (!fs.existsSync(fullPath)) {
+        return reply.status(404).send({ error: `File not found: ${physicalPath}` });
+    }
+
+    let fileContent = fs.readFileSync(fullPath, 'utf8');
+    const beginMarker = `<!-- LIFEOS:${block_id.toUpperCase()}:START -->`;
+    const endMarker = `<!-- LIFEOS:${block_id.toUpperCase()}:END -->`;
+    
+    const startIdx = fileContent.indexOf(beginMarker);
+    const endIdx = fileContent.indexOf(endMarker);
+
+    let newContent;
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+        newContent = fileContent.slice(0, startIdx + beginMarker.length) +
+                     `\n${content}\n` +
+                     fileContent.slice(endIdx);
+    } else {
+        newContent = fileContent.trimEnd() + `\n\n${beginMarker}\n${content}\n${endMarker}\n`;
+    }
+
+    fs.writeFileSync(fullPath, newContent, 'utf8');
+    return { status: 'success', path: physicalPath, block: block_id };
+});
+
+/**
+ * Endpoint: Append under a Markdown Header
+ */
+fastify.post('/append_section', async (request, reply) => {
+    const { vault, target, header, content } = request.body;
+    if (!target || !header || !content) {
+        return reply.status(400).send({ error: 'Missing target, header, or content' });
+    }
+
+    const physicalPath = resolveAlias(target);
+    const fullPath = path.join(VAULT_PATH, physicalPath);
+
+    if (!fs.existsSync(fullPath)) {
+        // Create if missing
+        fs.writeFileSync(fullPath, `## ${header}\n\n${content}\n`, 'utf8');
+        return { status: 'success', path: physicalPath, action: 'created' };
+    }
+
+    let fileContent = fs.readFileSync(fullPath, 'utf8');
+    const headerPattern = new RegExp(`^#+\\s+${header}\\s*$`, 'm');
+    const match = fileContent.match(headerPattern);
+
+    let newContent;
+    if (match) {
+        const headerEndIdx = match.index + match[0].length;
+        newContent = fileContent.slice(0, headerEndIdx) + `\n${content}` + fileContent.slice(headerEndIdx);
+    } else {
+        newContent = fileContent.trimEnd() + `\n\n## ${header}\n\n${content}\n`;
+    }
+
+    fs.writeFileSync(fullPath, newContent, 'utf8');
+    return { status: 'success', path: physicalPath, section: header };
+});
+
+/**
+ * SECURITY WARNING: The /eval endpoint allows execution of arbitrary JavaScript.
+ * This is a Remote Code Execution (RCE) risk. Ensure this service is ONLY accessible
+ * from trusted local networks or via secure, authenticated tunnels.
+ */
 fastify.post('/eval', async (request, reply) => {
     const { vault, code } = request.body;
     if (!code) return reply.status(400).send({ error: 'Missing code' });
-
     const args = [];
     if (vault) args.push(`vault=${vault}`);
-    args.push('eval');
-    args.push(`code=${code}`);
-
+    args.push('eval', `code=${code}`);
     try {
         const result = await executeCommand(args);
         return { status: 'success', output: result };
-    } catch (err) {
-        return reply.status(500).send(err);
-    }
+    } catch (err) { return reply.status(500).send(err); }
 });
 
-// Endpoint: Global Fuzzy Search (leveraging metadataCache for speed)
-fastify.post('/search', async (request, reply) => {
-    const { vault, query, limit = 10 } = request.body;
-    if (!query) return reply.status(400).send({ error: 'Missing query' });
-
-    // Sanitize query by using JSON.stringify to escape it for the JS payload
-    const sanitizedQuery = JSON.stringify(query.toLowerCase());
-    
-    // JS code to execute inside Obsidian context
-    const code = `(() => {
-        const q = ${sanitizedQuery};
-        const files = Object.keys(app.metadataCache.fileCache)
-            .filter(path => path.toLowerCase().includes(q.replace(/"/g, '')))
-            .slice(0, ${limit});
-        return JSON.stringify(files);
-    })()`;
-
-    const args = [];
-    if (vault) args.push(`vault=${vault}`);
-    args.push('eval');
-    args.push(`code=${code}`);
-
-    try {
-        const result = await executeCommand(args);
-        // Attempt to parse result if it's JSON string from eval
-        try {
-            return { status: 'success', output: JSON.parse(result) };
-        } catch (e) {
-            return { status: 'success', output: result };
-        }
-    } catch (err) {
-        return reply.status(500).send(err);
-    }
+// Endpoint: Health check
+fastify.get('/health', async (request, reply) => {
+    return { status: 'ok', service: 'http-to-obsidian-cli-gateway-v11' };
 });
 
-// Endpoint: Localized Knowledge Graph Traversal
-fastify.post('/graph', async (request, reply) => {
-    const { vault, central_node, depth = 2 } = request.body;
-    if (!central_node) return reply.status(400).send({ error: 'Missing central_node (file path)' });
-
-    // JS code to perform BFS traversal in Obsidian
-    const code = `(() => {
-        const centralNode = ${JSON.stringify(central_node)};
-        const maxDepth = ${depth};
-        const nodes = new Set();
-        const edges = [];
-        const visited = new Set();
-        const queue = [{ path: centralNode, depth: 0 }];
-
-        const resolvedLinks = app.metadataCache.resolvedLinks;
-        
-        // Helper to find backlinks (nodes that link TO current)
-        const findBacklinks = (targetPath) => {
-            const backlinks = [];
-            for (const [sourcePath, links] of Object.entries(resolvedLinks)) {
-                if (links[targetPath]) {
-                    backlinks.push(sourcePath);
-                }
-            }
-            return backlinks;
-        };
-
-        while (queue.length > 0) {
-            const { path, depth } = queue.shift();
-            if (visited.has(path)) continue;
-            visited.add(path);
-            nodes.add(path);
-
-            if (depth < maxDepth) {
-                // Outbound links (from current)
-                const outbound = Object.keys(resolvedLinks[path] || {});
-                for (const neighbor of outbound) {
-                    edges.push({ source: path, target: neighbor });
-                    if (!visited.has(neighbor)) {
-                        queue.push({ path: neighbor, depth: depth + 1 });
-                    }
-                }
-
-                // Inbound links (backlinks to current)
-                const inbound = findBacklinks(path);
-                for (const neighbor of inbound) {
-                    edges.push({ source: neighbor, target: path });
-                    if (!visited.has(neighbor)) {
-                        queue.push({ path: neighbor, depth: depth + 1 });
-                    }
-                }
-            }
-        }
-
-        return JSON.stringify({
-            nodes: Array.from(nodes),
-            edges: edges
-        });
-    })()`;
-
-    const args = [];
-    if (vault) args.push(`vault=${vault}`);
-    args.push('eval');
-    args.push(`code=${code}`);
-
-    try {
-        const result = await executeCommand(args);
-        try {
-            return { status: 'success', output: JSON.parse(result) };
-        } catch (e) {
-            return { status: 'success', output: result };
-        }
-    } catch (err) {
-        return reply.status(500).send(err);
-    }
-});
-
-// Endpoint: Execute standard Obsidian CLI commands
+// Standard CMD Proxy
 fastify.post('/cmd', async (request, reply) => {
     const { vault, command, args: cmdArgs } = request.body;
-    if (!command) return reply.status(400).send({ error: 'Missing command' });
-
     const args = [];
     if (vault) args.push(`vault=${vault}`);
     args.push(command);
-
-    if (Array.isArray(cmdArgs)) {
-        args.push(...cmdArgs);
-    } else if (cmdArgs) {
-        args.push(cmdArgs);
-    }
-
+    if (Array.isArray(cmdArgs)) args.push(...cmdArgs);
+    else if (cmdArgs) args.push(cmdArgs);
     try {
         const result = await executeCommand(args);
         return { status: 'success', output: result };
-    } catch (err) {
-        return reply.status(500).send(err);
-    }
+    } catch (err) { return reply.status(500).send(err); }
 });
 
-// Endpoint: Health check & Dependency Verification
-fastify.get('/health', async (request, reply) => {
-    try {
-        // Run a no-op command to check if CLI is responsive
-        const result = await executeCommand(['version']);
-        return { 
-            status: 'ok', 
-            service: 'http-to-obsidian-cli-gateway',
-            obsidian_cli: result.trim(),
-            queue_depth: queue.size
-        };
-    } catch (err) {
-        return reply.status(503).send({ 
-            status: 'degraded', 
-            error: 'Obsidian CLI not responding',
-            details: err 
-        });
-    }
-});
-
-// Start Server
 const start = async () => {
     try {
-        await fastify.listen({ port: PORT, host: '0.0.0.0' });
-        console.log(`🚀 Obsidian Optimized Gateway listening on port ${PORT}`);
-        if (API_KEY === 'change-me-in-env') {
-            console.warn('⚠️ WARNING: Using default API Key. Please set OBSIDIAN_GATEWAY_KEY in .env');
-        }
+        await fastify.listen({ port: PORT, host: HOST });
+        console.log(`🚀 Obsidian V11 Bridge listening on ${HOST}:${PORT}`);
     } catch (err) {
         fastify.log.error(err);
         process.exit(1);
